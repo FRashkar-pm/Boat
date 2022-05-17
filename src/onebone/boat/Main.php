@@ -2,89 +2,127 @@
 
 namespace onebone\boat;
 
-use pocketmine\plugin\PluginBase;
-use pocketmine\event\Listener;
-use pocketmine\inventory\BigShapelessRecipe;
-use pocketmine\item\Item;
-use pocketmine\entity\Entity;
-use pocketmine\event\server\DataPacketReceiveEvent;
-use pocketmine\network\protocol\InteractPacket;
-use pocketmine\network\protocol\SetEntityLinkPacket;
-use pocketmine\network\protocol\MovePlayerPacket;
+use onebone\boat\entity\Boat as BoatEntity;
+use onebone\boat\item\Boat;
+use pocketmine\block\utils\TreeType;
+use pocketmine\crafting\ShapelessRecipe;
+use pocketmine\entity\EntityDataHelper;
+use pocketmine\entity\EntityFactory;
+use pocketmine\event\EventPriority;
 use pocketmine\event\player\PlayerQuitEvent;
+use pocketmine\event\server\DataPacketReceiveEvent;
+use pocketmine\inventory\CreativeInventory;
+use pocketmine\item\ItemFactory;
+use pocketmine\item\ItemIdentifier;
+use pocketmine\item\ItemIds;
+use pocketmine\nbt\tag\CompoundTag;
+use pocketmine\network\mcpe\protocol\AnimatePacket;
+use pocketmine\network\mcpe\protocol\InteractPacket;
+use pocketmine\network\mcpe\protocol\InventoryTransactionPacket;
+use pocketmine\network\mcpe\protocol\MoveActorAbsolutePacket;
+use pocketmine\network\mcpe\protocol\PlayerInputPacket;
+use pocketmine\network\mcpe\protocol\SetActorMotionPacket;
+use pocketmine\network\mcpe\protocol\types\inventory\UseItemOnEntityTransactionData;
+use pocketmine\plugin\PluginBase;
+use pocketmine\world\World;
 
-use onebone\boat\item\Boat as BoatItem;
-use onebone\boat\packet\PlayerInputPacket;
-use onebone\boat\entity\Boat;
+class Main extends PluginBase{
 
-class Main extends PluginBase implements Listener{
-  private $riding = [];
+	/**
+	 * @phpstan-var array<string, BoatEntity>
+	 * @var BoatEntity[];
+	 */
+	public static array $playerBoat = [];
 
-  public function onEnable(){
-    $this->getServer()->getPluginManager()->registerEvents($this, $this);
+	protected function onLoad() : void{
+		$itemFactory = ItemFactory::getInstance();
+		$craftingManager = $this->getServer()->getCraftingManager();
+		$creativeInventory = CreativeInventory::getInstance();
+		foreach(TreeType::getAll() as $treeType){
+			$itemFactory->register($item = new Boat(new ItemIdentifier(ItemIds::BOAT, $treeType->getMagicNumber()), $treeType->getDisplayName() . " Boat", $treeType), true);
+			if(!$creativeInventory->contains($item)){
+				$creativeInventory->add($item);
+			}
+			$craftingManager->registerShapelessRecipe(new ShapelessRecipe(
+				ingredients: [$itemFactory->get(ItemIds::WOODEN_PLANKS, $treeType->getMagicNumber(), 5), $itemFactory->get(ItemIds::WOODEN_SHOVEL, 0, 1)],
+				results: [$itemFactory->get(ItemIds::BOAT, $treeType->getMagicNumber(), 1)]
+			));
+		}
+		EntityFactory::getInstance()->register(BoatEntity::class, function(World $world, CompoundTag $nbt): BoatEntity{
+			return new BoatEntity(EntityDataHelper::parseLocation($nbt, $world), $nbt);
+		}, ['BoatEntity', 'minecraft:boat']);
+	}
 
-    Item::$list[333] = BoatItem::class;
-    Item::addCreativeItem(new Item(333));
-    $this->getServer()->addRecipe((new BigShapelessRecipe(Item::get(333, 0, 1)))->addIngredient(Item::get(Item::WOODEN_PLANK, null, 5))->addIngredient(Item::get(Item::WOODEN_SHOVEL, null, 1)));
+	protected function onEnable() : void{
+		$this->getServer()->getPluginManager()->registerEvent(PlayerQuitEvent::class, function(PlayerQuitEvent $event): void{
+			$player = $event->getPlayer();
+			$rawUUID = $player->getUniqueId()->toString();
+			if(!isset(self::$playerBoat[$rawUUID])){
+				return;
+			}
+			$boat = self::$playerBoat[$rawUUID];
+			if(!$boat->isClosed()){
+				$boat->unlink($player);
+			}
+		}, EventPriority::MONITOR, $this, false);
 
-    Entity::registerEntity("\\onebone\\boat\\entity\\Boat", true);
-
-    $this->getServer()->getNetwork()->registerPacket(0xae, PlayerInputPacket::class);
-  }
-
-  public function onQuit(PlayerQuitEvent $event){
-    if(isset($this->riding[$event->getPlayer()->getName()])){
-      unset($this->riding[$event->getPlayer()->getName()]);
-    }
-  }
-
-  public function onPacketReceived(DataPacketReceiveEvent $event){
-    $packet = $event->getPacket();
-    $player = $event->getPlayer();
-    if($packet instanceof InteractPacket){
-      $boat = $player->getLevel()->getEntity($packet->target);
-      if($boat instanceof Boat){
-        if($packet->action === 1){
-          $pk = new SetEntityLinkPacket();
-          $pk->from = $boat->getId();
-          $pk->to = $player->getId();
-          $pk->type = 2;
-
-          $this->getServer()->broadcastPacket($player->getLevel()->getPlayers(), $pk);
-          $pk = new SetEntityLinkPacket();
-          $pk->from = $boat->getId();
-          $pk->to = 0;
-          $pk->type = 2;
-          $player->dataPacket($pk);
-
-          $this->riding[$player->getName()] = $packet->target;
-        }elseif($packet->action === 3){
-          $pk = new SetEntityLinkPacket();
-          $pk->from = $boat->getId();
-          $pk->to = $player->getId();
-          $pk->type = 3;
-
-          $this->getServer()->broadcastPacket($player->getLevel()->getPlayers(), $pk);
-          $pk = new SetEntityLinkPacket();
-          $pk->from = $boat->getId();
-          $pk->to = 0;
-          $pk->type = 3;
-          $player->dataPacket($pk);
-
-          if(isset($this->riding[$event->getPlayer()->getName()])){
-            unset($this->riding[$event->getPlayer()->getName()]);
-          }
-        }
-      }
-    }elseif($packet instanceof MovePlayerPacket){
-      if(isset($this->riding[$player->getName()])){
-        $boat = $player->getLevel()->getEntity($this->riding[$player->getName()]);
-        if($boat instanceof Boat){
-          $boat->x = $packet->x;
-          $boat->y = $packet->y;
-          $boat->z = $packet->z;
-        }
-      }
-    }
-  }
+		$this->getServer()->getPluginManager()->registerEvent(DataPacketReceiveEvent::class, function(DataPacketReceiveEvent $event): void{
+			$player = $event->getOrigin()->getPlayer();
+			if($player === null){
+				return;
+			}
+			$rawUUID = $player->getUniqueId()->toString();
+			$packet = $event->getPacket();
+			if(
+				$packet instanceof InventoryTransactionPacket &&
+				$packet->trData instanceof UseItemOnEntityTransactionData &&
+				$packet->trData->getActionType() === UseItemOnEntityTransactionData::ACTION_INTERACT
+			){
+				$entity = $player->getWorld()->getEntity($packet->trData->getActorRuntimeId());
+				if(!$entity instanceof BoatEntity){
+					return;
+				}
+				if(!$entity->isRiding()){
+					$entity->link($player);
+				}
+				$event->cancel();
+			}elseif($packet instanceof InteractPacket){
+				$entity = $player->getWorld()->getEntity($packet->targetActorRuntimeId);
+				if(!$entity instanceof BoatEntity){
+					return;
+				}
+				if($packet->action === InteractPacket::ACTION_LEAVE_VEHICLE && $entity->isRider($player)){
+					$entity->unlink($player);
+				}
+				$event->cancel();
+			}elseif($packet instanceof MoveActorAbsolutePacket){
+				$entity = $player->getWorld()->getEntity($packet->actorRuntimeId);
+				if($entity instanceof BoatEntity && $entity->isRider($player)){
+					/**
+					 * $packet->xRot to $packet->yaw
+					 * $packet->zRot to $packet->pitch
+					 */
+					$entity->absoluteMove($packet->position, $packet->yaw, $packet->pitch);
+					$event->cancel();
+				}
+			}elseif($packet instanceof AnimatePacket){
+				if(!isset(self::$playerBoat[$rawUUID])){
+					return;
+				}
+				$entity = self::$playerBoat[$rawUUID];
+				switch($packet->action){
+					case BoatEntity::ACTION_ROW_RIGHT:
+					case BoatEntity::ACTION_ROW_LEFT:
+						$entity->handleAnimatePacket($packet);
+						$event->cancel();
+						break;
+				}
+			}elseif($packet instanceof PlayerInputPacket || $packet instanceof SetActorMotionPacket){
+				if(!isset(self::$playerBoat[$rawUUID])){
+					return;
+				}
+				$event->cancel();
+			}
+		}, EventPriority::MONITOR, $this, false);
+	}
 }
