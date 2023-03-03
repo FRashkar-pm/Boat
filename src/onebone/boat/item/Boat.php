@@ -2,7 +2,6 @@
 
 namespace onebone\boat\item;
 
-use JetBrains\PhpStorm\Pure;
 use pocketmine\block\Block;
 use pocketmine\entity\Location;
 use pocketmine\item\Boat as PMBoat;
@@ -24,7 +23,6 @@ class Boat extends PMBoat{
 		return ItemUseResult::SUCCESS();
 	}
 
-	#[Pure]
 	public function getVanillaName() : string{
 		return $this->getWoodType()->getDisplayName();
 	}
