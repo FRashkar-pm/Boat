@@ -123,7 +123,7 @@ class Boat extends Entity{
 		if($this->closed){
 			return false;
 		}
-		if($currentTick & 10 === 0 && $this->getHealth() < $this->getMaxHealth()){
+		if($currentTick & 10 == 0 && $this->getHealth() < $this->getMaxHealth()){
 			$this->heal(new EntityRegainHealthEvent($this, 1, EntityRegainHealthEvent::CAUSE_REGEN));
 		}
 		return $hasUpdate;
