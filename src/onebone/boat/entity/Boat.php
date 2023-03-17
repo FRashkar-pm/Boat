@@ -8,6 +8,8 @@ use pocketmine\block\utils\TreeType;
 use pocketmine\entity\EntitySizeInfo;
 use pocketmine\item\ItemFactory;
 use pocketmine\item\ItemIds;
+use pocketmine\item\ItemIds as Ids;
+use pocketmine\item\VanillaItems;
 use pocketmine\nbt\tag\CompoundTag;
 use pocketmine\network\mcpe\protocol\types\ActorEvent;
 use pocketmine\network\mcpe\protocol\types\entity\EntityIds;
@@ -114,7 +116,7 @@ class Boat extends Entity{
 
 	public function getDrops(): array{
 		return [
-			ItemFactory::getInstance()->get(ItemIds::BOAT, $this->woodId, 1)
+			ItemFactory::getInstance()->get(Ids::BOAT, $this->woodId)->setCount(1)
 		];
 	}
 
